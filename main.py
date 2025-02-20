@@ -1,63 +1,41 @@
-import os
-import sqlite3
-from ui import EmailManagerUI
-from setup import setup_application
-from email_handler import check_new_emails
-from totp_auth import verify_totp
+import database
+import totp_auth
+import gui
+import tkinter as tk
+from tkinter import simpledialog, messagebox
 
-def initialize_database():
-    """Ensures the database exists and has necessary tables."""
-    conn = sqlite3.connect("email_manager.db")
-    cursor = conn.cursor()
+def prompt_credentials():
+    """Prompt user for email credentials in a Tkinter dialog."""
+    root = tk.Tk()
+    root.withdraw()
+    email = simpledialog.askstring("Setup", "Enter your email:")
+    password = simpledialog.askstring("Setup", "Enter your password:", show='*')
     
-    cursor.execute('''CREATE TABLE IF NOT EXISTS settings (
-                        key TEXT PRIMARY KEY,
-                        value TEXT)''')
-    
-    cursor.execute('''CREATE TABLE IF NOT EXISTS members (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        name TEXT, 
-                        email TEXT UNIQUE,
-                        position TEXT)''')
-    
-    cursor.execute('''CREATE TABLE IF NOT EXISTS emails (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        sender TEXT,
-                        subject TEXT,
-                        timestamp TEXT,
-                        body TEXT)''')
-    
-    cursor.execute('''CREATE TABLE IF NOT EXISTS sync_info (
-                        last_sync TEXT)''')
-    
-    conn.commit()
-    conn.close()
+    if email and password:
+        database.save_setting("email", email)
+        database.save_setting("password", password)
+    else:
+        messagebox.showerror("Error", "Email and password are required.")
+        exit()
 
 def main():
-    """Main function to control the email manager flow."""
-    initialize_database()
+    """Main function to initialize the app."""
+    database.initialize_database()
     
-    # Check if setup is required
-    conn = sqlite3.connect("email_manager.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT value FROM settings WHERE key='setup_done'")
-    setup_done = cursor.fetchone()
-    conn.close()
+    if not database.get_setting("email"):
+        prompt_credentials()
+        totp_auth.initialize_totp()
     
-    if not setup_done:
-        setup_application()  # Runs first-time setup
-    
-    # Verify user via TOTP
-    if not verify_totp():
-        print("TOTP verification failed. Exiting application.")
+    # Prompt for TOTP verification
+    root = tk.Tk()
+    root.withdraw()
+    user_code = simpledialog.askstring("TOTP Authentication", "Enter your TOTP code:", show='*')
+    if not totp_auth.verify_totp(user_code):
+        messagebox.showerror("Authentication Failed", "Invalid TOTP Code. Exiting.")
         return
     
-    # Check for new emails before launching UI
-    check_new_emails()
-    
-    # Launch GUI
-    app = EmailManagerUI()
-    app.run()
-    
+    print("Authentication successful!")
+    gui.root.mainloop()
+
 if __name__ == "__main__":
     main()
